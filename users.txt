@@ -1,0 +1,7 @@
+admin
+user
+test
+mail
+smtp
+postmaster
+root
