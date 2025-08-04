@@ -1,0 +1,11 @@
+# Common usernames to test
+admin
+user
+test
+mail
+smtp
+postmaster
+root
+noreply
+support
+info

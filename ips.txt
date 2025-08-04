@@ -1,0 +1,5 @@
+# Add IP addresses or hostnames to scan, one per line
+# Examples:
+# 192.168.1.100
+# mail.example.com
+# smtp.company.com
