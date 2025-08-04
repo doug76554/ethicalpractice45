@@ -657,10 +657,8 @@ def main():
     # Handle file creation mode
     if str(sys.argv[1]) == 'a':
         create_sample_files()
-        scanner = SMTPScanner()
-        if not scanner.load_config():
-            scanner.create_config_template()
-        print("\n[INFO] Setup complete! Configure email_config.json and add targets to the .txt files")
+        print("\n[INFO] Setup complete! Add targets to the .txt files and run the scanner.")
+        print(f"[INFO] Working SMTPs will be sent to: {NOTIFY_EMAIL}")
         sys.exit(0)
     
     try:
@@ -674,12 +672,9 @@ def main():
         
         scanner = SMTPScanner(thread_count, verbose, debug)
         
-        # Load email configuration
-        if not scanner.load_config():
-            print("[WARNING] No email configuration found. Creating template...")
-            scanner.create_config_template()
-            print("[INFO] Please configure email_config.json for email notifications")
-            print("[INFO] Scan will continue and save results to files")
+        # Email configuration is hardcoded at the top of the file
+        print(f"[INFO] Email notifications enabled - sending to: {NOTIFY_EMAIL}")
+        print(f"[INFO] Using SMTP server: {SMTP_SERVER}:{SMTP_PORT} (User: {SMTP_USER})")
         
         scanner.run_scan()
         
