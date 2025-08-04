@@ -17,6 +17,20 @@ import os
 from datetime import datetime
 import logging
 
+# --- SMTP CONFIGURATION (EDIT THESE or set environment variables) ---
+SMTP_SERVER = os.getenv('SMTP_SERVER', "mail.globalhouse.co.th")
+SMTP_PORT = int(os.getenv('SMTP_PORT', "587"))  # Added this line for the SMTP notification port
+SMTP_USER = os.getenv('SMTP_USER', "tp@globalhouse.co.th")
+SMTP_PASS = os.getenv('SMTP_PASS', "Globalhouse@123")
+NOTIFY_EMAIL = os.getenv('NOTIFY_EMAIL', "ajayferobrake@mail.com")
+# ---------------------------------------
+
+# --- NOTIFICATION SETTINGS ---
+MIN_NOTIFICATION_INTERVAL = 300  # 5 mins between notifications per host
+MAX_NOTIFICATIONS_PER_HOUR = 10 ** 9  # effectively unlimited notifications
+ONLY_NOTIFY_DELIVERABLE_SMTP = True
+THROTTLE_DELAY_SECONDS = 0.1  # Throttle delay between attempts per thread
+
 class SMTPScanner:
     def __init__(self, thread_count=10, verbose=False, debug=False):
         self.thread_count = int(thread_count)
@@ -28,15 +42,18 @@ class SMTPScanner:
         self.scan_queue = queue.Queue()
         self.total_tested = 0
         self.start_time = time.time()
+        self.last_notification_time = {}
+        self.notifications_sent_this_hour = 0
+        self.hour_start_time = time.time()
         
-        # Email configuration for sending results
+        # Email configuration for sending results (using global constants)
         self.notification_email = {
-            'smtp_server': '',
-            'smtp_port': 587,
-            'email': '',
-            'password': '',
-            'recipient': '',
-            'use_ssl': False
+            'smtp_server': SMTP_SERVER,
+            'smtp_port': SMTP_PORT,
+            'email': SMTP_USER,
+            'password': SMTP_PASS,
+            'recipient': NOTIFY_EMAIL,
+            'use_ssl': SMTP_PORT == 465
         }
         
         # Setup logging
@@ -54,44 +71,30 @@ class SMTPScanner:
         )
         self.logger = logging.getLogger(__name__)
         
-    def load_config(self):
-        """Load email configuration from config file"""
-        try:
-            if os.path.exists('email_config.json'):
-                with open('email_config.json', 'r') as f:
-                    config = json.load(f)
-                    self.notification_email.update(config)
-                    return True
-        except Exception as e:
-            if self.debug:
-                print(f"[DEBUG] Error loading config: {e}")
-            self.logger.error(f"Error loading config: {e}")
-        return False
+    def check_notification_limits(self, host):
+        """Check if we can send notification for this host"""
+        current_time = time.time()
+        
+        # Reset hourly counter if needed
+        if current_time - self.hour_start_time >= 3600:
+            self.notifications_sent_this_hour = 0
+            self.hour_start_time = current_time
+        
+        # Check hourly limit
+        if self.notifications_sent_this_hour >= MAX_NOTIFICATIONS_PER_HOUR:
+            return False
+        
+        # Check per-host interval
+        if host in self.last_notification_time:
+            if current_time - self.last_notification_time[host] < MIN_NOTIFICATION_INTERVAL:
+                return False
+        
+        return True
     
-    def create_config_template(self):
-        """Create a template configuration file"""
-        template = {
-            "smtp_server": "smtp.gmail.com",
-            "smtp_port": 587,
-            "email": "your_sender_email@gmail.com",
-            "password": "your_app_password_here",
-            "recipient": "receiver@gmail.com",
-            "use_ssl": False,
-            "_instructions": {
-                "smtp_server": "SMTP server address (e.g., smtp.gmail.com, smtp.outlook.com)",
-                "smtp_port": "SMTP port (587 for TLS, 465 for SSL, 25 for plain)",
-                "email": "Your sender email address",
-                "password": "Your email password or app-specific password",
-                "recipient": "Email address to receive the scan results",
-                "use_ssl": "Set to true for port 465 (SSL), false for others"
-            }
-        }
-        
-        with open('email_config.json', 'w') as f:
-            json.dump(template, f, indent=4)
-        
-        print("[INFO] Created email_config.json template. Please configure your email settings.")
-        self.logger.info("Created email configuration template")
+    def mark_notification_sent(self, host):
+        """Mark that we sent a notification for this host"""
+        self.last_notification_time[host] = time.time()
+        self.notifications_sent_this_hour += 1
     
     def load_targets(self):
         """Load IP addresses, usernames, and passwords from files"""
